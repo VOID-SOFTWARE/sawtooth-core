@@ -36,6 +36,8 @@ use std::time::Duration;
 
 use protobuf;
 use sawtooth::{
+    batch::Batch,
+    block::Block,
     consensus::registry::ConsensusRegistry,
     journal::{
         chain::COMMIT_STORE, chain_id_manager::ChainIdManager, fork_cache::ForkCache,
@@ -43,8 +45,6 @@ use sawtooth::{
     },
 };
 
-use batch::Batch;
-use block::Block;
 use consensus::notifier::ConsensusNotifier;
 use execution::execution_platform::ExecutionPlatform;
 use gossip::permission_verifier::PermissionVerifier;

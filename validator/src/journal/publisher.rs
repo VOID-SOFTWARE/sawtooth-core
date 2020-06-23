@@ -17,9 +17,6 @@
 
 #![allow(unknown_lints)]
 
-use batch::Batch;
-use block::Block;
-
 use cpython::{NoArgs, ObjectProtocol, PyClone, PyDict, PyList, PyObject, Python};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
@@ -30,6 +27,9 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
+use sawtooth::{batch::Batch, block::Block};
+
+use crate::py_object_wrapper::PyObjectWrapper;
 use execution::execution_platform::ExecutionPlatform;
 use ffi::py_import_class;
 use journal::block_manager::{BlockManager, BlockRef};
@@ -412,19 +412,21 @@ impl SyncBlockPublisher {
     fn publish_block(&self, block: &PyObject, injected_batches: Vec<String>) -> String {
         let gil = Python::acquire_gil();
         let py = gil.python();
-        let block: Block = block
-            .extract(py)
-            .expect("Got block to publish that wasn't a BlockWrapper");
+        let py_obj = block
+            .extract::<PyObject>(py)
+            .expect("Unable to extract PyObject");
 
-        let block_id = block.header_signature.clone();
+        let wrapper = PyObjectWrapper::new(py_obj);
 
         self.block_sender
-            .call_method(py, "send", (block, injected_batches), None)
+            .call_method(py, "send", (&wrapper, injected_batches), None)
             .map_err(|py_err| {
                 ::pylogger::exception(py, "{:?}", py_err);
             })
             .expect("BlockSender.send() raised an exception");
 
+        let block: Block = Block::from(wrapper);
+        let block_id = block.header_signature.clone();
         let mut blocks_published_count =
             COLLECTOR.counter("BlockPublisher.blocks_published_count", None, None);
         blocks_published_count.inc();
@@ -461,8 +463,10 @@ impl SyncBlockPublisher {
             let gil = Python::acquire_gil();
             let py = gil.python();
 
+            let batch_wrapper = PyObjectWrapper::from(batch.clone());
+
             self.permission_verifier
-                .call_method(py, "is_batch_signer_authorized", (batch.clone(),), None)
+                .call_method(py, "is_batch_signer_authorized", (batch_wrapper,), None)
                 .expect("PermissionVerifier has no method is_batch_signer_authorized")
                 .extract(py)
                 .expect("PermissionVerifier.is_batch_signer_authorized did not return bool")
