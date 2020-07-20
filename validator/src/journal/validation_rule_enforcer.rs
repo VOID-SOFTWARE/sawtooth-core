@@ -16,7 +16,6 @@
  */
 
 use batch::Batch;
-use journal::candidate_block::BatchInjectionStage;
 use state::settings_view::SettingsView;
 use transaction::Transaction;
 
@@ -39,19 +38,17 @@ pub fn enforce_validation_rules(
     settings_view: &SettingsView,
     expected_signer: &str,
     batches: &[&Batch],
-    stage: &BatchInjectionStage,
 ) -> bool {
     let rules = settings_view
         .get_setting_str("sawtooth.validator.block_validation_rules", None)
         .expect("Unable to get setting");
-    enforce_rules(rules, expected_signer, batches, &stage)
+    enforce_rules(rules, expected_signer, batches)
 }
 
 fn enforce_rules(
     rules: Option<String>,
     expected_signer: &str,
     batches: &[&Batch],
-    stage: &BatchInjectionStage,
 ) -> bool {
     if rules.is_none() {
         return true;
@@ -68,9 +65,9 @@ fn enforce_rules(
             if rule_type == "NofX" {
                 valid = do_nofx(&transactions, &arguments);
             } else if rule_type == "XatY" {
-                valid = do_xaty(&transactions, &arguments, &stage);
+                valid = do_xaty(&transactions, &arguments);
             } else if rule_type == "local" {
-                valid = do_local(&transactions, expected_signer, &arguments, &stage);
+                valid = do_local(&transactions, expected_signer, &arguments);
             }
 
             if !valid {
@@ -141,7 +138,7 @@ fn do_nofx(transactions: &[&Transaction], arguments: &[&str]) -> bool {
 /// would not be a transaction of type X at Y and the block would be
 /// invalid. For example, the string "XatY:intkey,0" means the first
 /// transaction in the block must be an intkey transaction.
-fn do_xaty(transactions: &[&Transaction], arguments: &[&str], stage: &BatchInjectionStage) -> bool {
+fn do_xaty(transactions: &[&Transaction], arguments: &[&str]) -> bool {
     let (family, position) = if arguments.len() == 2 {
         let family = arguments[0].trim();
         let position: isize = match arguments[1].trim().parse() {
@@ -162,10 +159,6 @@ fn do_xaty(transactions: &[&Transaction], arguments: &[&str], stage: &BatchInjec
         );
         return true;
     };
-
-    if stage != &BatchInjectionStage::BlockEnd {
-        return true;
-    }
 
     let txn = get_transaction_from_index(&transactions, position, "XatY".to_string());
 
@@ -196,7 +189,6 @@ fn do_local(
     transactions: &[&Transaction],
     expected_signer: &str,
     arguments: &[&str],
-    stage: &BatchInjectionStage,
 ) -> bool {
     let indices: Result<Vec<isize>, _> = arguments.iter().map(|s| s.trim().parse()).collect();
 
@@ -210,7 +202,6 @@ fn do_local(
     }
 
     for index in indices.unwrap() {
-        if stage == &BatchInjectionStage::BlockEnd {
             let txn = get_transaction_from_index(&transactions, index, "local".to_string());
             match txn {
                 Some(transaction) => {
@@ -220,7 +211,6 @@ fn do_local(
                             index, &transaction,
                         );
                         return false;
-                    }
                 }
                 _ => continue,
             }
@@ -276,10 +266,6 @@ mod tests {
     use batch::Batch;
     use transaction::Transaction;
 
-    /// BatchInjectionStage::BlockEnd should be used in the enforce_rules
-    /// method to simulate the full set of batches to be added to a block
-    /// You should use this in order to validate every rule
-
     /// Test that if no validation rules are set, the block is valid.
     #[test]
     fn test_no_setting() {
@@ -288,7 +274,6 @@ mod tests {
             None,
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
     }
 
@@ -304,19 +289,16 @@ mod tests {
             Some("NofX:1,intkey".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
         assert!(!enforce_rules(
             Some("NofX:0,intkey".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
         assert!(enforce_rules(
             Some("NofX:0".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
     }
 
@@ -332,19 +314,16 @@ mod tests {
             Some("XatY:intkey,0".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
         assert!(!enforce_rules(
             Some("XatY:blockinfo,0".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
         assert!(enforce_rules(
             Some("XatY:0".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
     }
 
@@ -361,19 +340,16 @@ mod tests {
             Some("local:0".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
         assert!(!enforce_rules(
             Some("local:0".to_string()),
             "another_pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
         assert!(enforce_rules(
             Some("local".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
     }
 
@@ -386,7 +362,6 @@ mod tests {
             Some("NofX:1,intkey;XatY:intkey,0;local:0".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
     }
 
@@ -399,7 +374,6 @@ mod tests {
             Some("NofX:0,intkey;XatY:intkey,0;local:0".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
     }
 
@@ -413,7 +387,6 @@ mod tests {
             Some("NofX:1,intkey;XatY:blockinfo,0;local:0".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
     }
 
@@ -427,7 +400,6 @@ mod tests {
             Some("NofX:1,intkey;XatY:intkey,0;local:0".to_string()),
             "not_same_pubkey",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
     }
 
@@ -445,7 +417,6 @@ mod tests {
             ),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
         let even_more_batches = make_batches(
             &[
@@ -473,7 +444,6 @@ mod tests {
             ),
             "pub_key",
             &even_more_batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
     }
 
@@ -486,7 +456,6 @@ mod tests {
             Some("local:0,-1".to_string()),
             "pub_key",
             &batches.iter().collect::<Vec<_>>(),
-            &BatchInjectionStage::BlockEnd,
         ));
     }
 
