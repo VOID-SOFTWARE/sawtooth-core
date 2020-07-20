@@ -22,7 +22,6 @@ use block::Block;
 use execution::execution_platform::{ExecutionPlatform, NULL_STATE_HASH};
 use gossip::permission_verifier::PermissionVerifier;
 use journal::block_scheduler::BlockScheduler;
-use journal::candidate_block::BatchInjectionStage;
 use journal::chain_commit_state::{
     validate_no_duplicate_batches, validate_no_duplicate_transactions,
     validate_transaction_dependencies, ChainCommitStateError,
@@ -715,12 +714,7 @@ impl BlockValidation for OnChainRulesValidation {
                     ))
                 })?;
             let batches: Vec<&Batch> = block.batches.iter().collect();
-            if !enforce_validation_rules(
-                &settings_view,
-                &block.signer_public_key,
-                &batches,
-                &BatchInjectionStage::BlockEnd,
-            ) {
+            if !enforce_validation_rules(&settings_view, &block.signer_public_key, &batches) {
                 return Err(ValidationError::BlockValidationFailure(format!(
                     "Block {} failed validation rules",
                     &block.header_signature

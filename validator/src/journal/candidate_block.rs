@@ -48,18 +48,6 @@ pub enum BatchInjectionStage {
     BlockUnderFormation,
 }
 
-impl BatchInjectionStage {
-    fn value(&self) -> &str {
-        match *self {
-            BatchInjectionStage::BlockStart => "block_start",
-            BatchInjectionStage::BeforeBatch => "before_batch",
-            BatchInjectionStage::AfterBatch => "after_batch",
-            BatchInjectionStage::BlockEnd => "block_end",
-            _ => "",
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum CandidateBlockError {
     BlockEmpty,
@@ -328,8 +316,6 @@ impl CandidateBlock {
 
             // Inject batches after current batch
             batches_to_add.append(&mut injected_batches_after);
-
-            self.test_and_add_batches(batches_to_add, &BatchInjectionStage::BlockUnderFormation);
         } else {
             debug!(
                 "Dropping batch due to missing dependencies: {}",
@@ -338,14 +324,14 @@ impl CandidateBlock {
         }
     }
 
-    fn add_block_end_batches(&mut self) {
+    fn handle_block_end_batches(&mut self) {
         // Inject blocks at the end of a Candidate Block
         let batches_to_add = self.get_injected_batches(BatchInjectionStage::BlockEnd, None);
 
-        self.test_and_add_batches(batches_to_add, &BatchInjectionStage::BlockEnd);
+        self.validate_and_add_batches(batches_to_add);
     }
 
-    fn test_and_add_batches(&mut self, batches: Vec<Batch>, stage: &BatchInjectionStage) {
+    fn validate_and_add_batches(&mut self, batches: Vec<Batch>) {
         {
             let batches_to_test = self
                 .pending_batches
@@ -356,7 +342,6 @@ impl CandidateBlock {
                 &self.settings_view,
                 &self.get_signer_public_key_hex(),
                 &batches_to_test,
-                stage,
             ) {
                 return;
             }
@@ -412,7 +397,7 @@ impl CandidateBlock {
             return Err(CandidateBlockError::BlockEmpty);
         }
 
-        self.add_block_end_batches();
+        self.handle_block_end_batches();
         self.scheduler.finalize(true).unwrap();
         let execution_results = self.scheduler.complete(true).unwrap().unwrap();
 
