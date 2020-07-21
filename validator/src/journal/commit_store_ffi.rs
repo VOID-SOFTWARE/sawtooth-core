@@ -20,12 +20,12 @@ use std::os::raw::{c_char, c_void};
 use std::slice;
 
 use protobuf;
+use sawtooth::database::error::DatabaseError;
+use sawtooth::database::lmdb::LmdbDatabase;
+use sawtooth::journal::commit_store::{
+    ByHeightDirection, CommitStore, CommitStoreByHeightIterator,
+};
 use sawtooth::{batch::Batch, block::Block, transaction::Transaction};
-
-use database::error::DatabaseError;
-use database::lmdb::LmdbDatabase;
-use journal::commit_store::{ByHeightDirection, CommitStore, CommitStoreByHeightIterator};
-use proto;
 
 #[repr(u32)]
 #[derive(Debug)]
@@ -404,11 +404,11 @@ pub unsafe extern "C" fn commit_store_put_blocks(
     check_null!(commit_store, blocks);
 
     let blocks_result: Result<Vec<Block>, ErrorCode> = slice::from_raw_parts(blocks, blocks_len)
-        .into_iter()
+        .iter()
         .map(|ptr| {
             let entry = *ptr as *const PutEntry;
             let payload = slice::from_raw_parts((*entry).block_bytes, (*entry).block_bytes_len);
-            let proto_block: proto::block::Block =
+            let proto_block: sawtooth::protos::block::Block =
                 protobuf::parse_from_bytes(&payload).expect("Failed to parse proto Block bytes");
 
             Ok(Block::from(proto_block))
@@ -438,7 +438,7 @@ unsafe fn return_block(
     block_len: *mut usize,
     block_cap: *mut usize,
 ) -> ErrorCode {
-    return_proto::<_, proto::block::Block>(block, block_ptr, block_len, block_cap)
+    return_proto::<_, sawtooth::protos::block::Block>(block, block_ptr, block_len, block_cap)
 }
 
 unsafe fn return_batch(
@@ -447,7 +447,7 @@ unsafe fn return_batch(
     batch_len: *mut usize,
     batch_cap: *mut usize,
 ) -> ErrorCode {
-    return_proto::<_, proto::batch::Batch>(batch, batch_ptr, batch_len, batch_cap)
+    return_proto::<_, sawtooth::protos::batch::Batch>(batch, batch_ptr, batch_len, batch_cap)
 }
 
 unsafe fn return_transaction(
@@ -456,7 +456,7 @@ unsafe fn return_transaction(
     transaction_len: *mut usize,
     transaction_cap: *mut usize,
 ) -> ErrorCode {
-    return_proto::<_, proto::transaction::Transaction>(
+    return_proto::<_, sawtooth::protos::transaction::Transaction>(
         transaction,
         transaction_ptr,
         transaction_len,

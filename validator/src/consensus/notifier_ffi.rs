@@ -22,13 +22,14 @@ use std::slice;
 use cpython::{NoArgs, ObjectProtocol, PyClone, PyObject, Python};
 use protobuf::{self, Message, ProtobufEnum};
 use py_ffi;
-use sawtooth::block::Block;
-
-use consensus::notifier::{
-    BackgroundConsensusNotifier, ConsensusNotifier, NotifierService, NotifierServiceError,
+use sawtooth::{
+    block::Block,
+    consensus::notifier::{
+        BackgroundConsensusNotifier, ConsensusNotifier, NotifierService, NotifierServiceError,
+    },
+    protos::{consensus::ConsensusPeerMessage, validator::Message_MessageType as MessageType},
 };
-use proto::validator::Message_MessageType as MessageType;
-use proto::{self, consensus::ConsensusPeerMessage};
+
 use pylogger;
 
 pub struct PyNotifierService {
@@ -270,7 +271,7 @@ pub unsafe extern "C" fn consensus_notifier_notify_block_new(
 
     let block: Block = {
         let data = slice::from_raw_parts(block_bytes, block_bytes_len);
-        let proto_block: proto::block::Block = match protobuf::parse_from_bytes(&data) {
+        let proto_block: sawtooth::protos::block::Block = match protobuf::parse_from_bytes(&data) {
             Ok(block) => block,
             Err(err) => {
                 error!("Failed to parse block bytes: {:?}", err);
@@ -327,7 +328,7 @@ pub unsafe extern "C" fn consensus_notifier_notify_engine_activated(
 
     let block: Block = {
         let data = slice::from_raw_parts(block_bytes, block_bytes_len);
-        let proto_block: proto::block::Block = match protobuf::parse_from_bytes(&data) {
+        let proto_block: sawtooth::protos::block::Block = match protobuf::parse_from_bytes(&data) {
             Ok(block) => block,
             Err(err) => {
                 error!("Failed to parse block bytes: {:?}", err);

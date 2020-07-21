@@ -21,18 +21,15 @@ use std::os::raw::{c_char, c_void};
 use std::slice;
 
 use cpython::{ObjectProtocol, PyClone, PyList, PyObject, Python};
+use sawtooth::journal::publisher::{BatchObserver, FinalizeBlockError, InitializeBlockError};
+use sawtooth::journal::{block_manager::BlockManager, commit_store::CommitStore};
+use sawtooth::state::state_view_factory::StateViewFactory;
 use sawtooth::{batch::Batch, block::Block};
 
 use crate::py_object_wrapper::PyObjectWrapper;
 use execution::py_executor::PyExecutor;
 use ffi::py_import_class;
-use journal::block_manager::BlockManager;
-use journal::commit_store::CommitStore;
-use journal::publisher::{
-    BatchObserver, BlockPublisher, FinalizeBlockError, IncomingBatchSender, InitializeBlockError,
-};
-
-use state::state_view_factory::StateViewFactory;
+use journal::publisher::{BlockPublisher, IncomingBatchSender};
 
 lazy_static! {
     static ref PY_BATCH_PUBLISHER_CLASS: PyObject = py_import_class(
@@ -309,7 +306,7 @@ pub unsafe fn convert_on_chain_updated_args(
         .extract::<PyList>(py)
         .expect("Failed to extract PyList from uncommitted_batches")
         .iter(py)
-        .map(|pyobj| PyObjectWrapper::new(pyobj))
+        .map(PyObjectWrapper::new)
         .collect::<Vec<PyObjectWrapper>>();
 
     let committed_batches: Vec<Batch> = if py_committed_batches == Python::None(py) {
@@ -317,7 +314,7 @@ pub unsafe fn convert_on_chain_updated_args(
     } else {
         py_wrappers_committed
             .into_iter()
-            .map(|py_wrap| Batch::from(py_wrap))
+            .map(Batch::from)
             .collect::<Vec<Batch>>()
     };
     let py_uncommitted_batches = PyObject::from_borrowed_ptr(py, uncommitted_batches_ptr);
@@ -325,7 +322,7 @@ pub unsafe fn convert_on_chain_updated_args(
         .extract::<PyList>(py)
         .expect("Failed to extract PyList from uncommitted_batches")
         .iter(py)
-        .map(|pyobj| PyObjectWrapper::new(pyobj))
+        .map(PyObjectWrapper::new)
         .collect::<Vec<PyObjectWrapper>>();
 
     let uncommitted_batches: Vec<Batch> = if py_uncommitted_batches == Python::None(py) {
@@ -333,7 +330,7 @@ pub unsafe fn convert_on_chain_updated_args(
     } else {
         py_wrappers_uncommitted
             .into_iter()
-            .map(|py_wrap| Batch::from(py_wrap))
+            .map(Batch::from)
             .collect::<Vec<Batch>>()
     };
     let wrapped_chain_head = PyObjectWrapper::new(chain_head);

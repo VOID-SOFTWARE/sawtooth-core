@@ -17,23 +17,15 @@
 
 #![allow(unknown_lints)]
 
-use consensus::notifier::BackgroundConsensusNotifier;
 use consensus::registry_ffi::PyConsensusRegistry;
 use cpython::{self, ObjectProtocol, PyList, PyObject, Python, PythonObject, ToPyObject};
-use database::lmdb::LmdbDatabase;
 use execution::py_executor::PyExecutor;
 use gossip::permission_verifier::PyPermissionVerifier;
-use journal::block_manager::BlockManager;
-use journal::block_validator::{BlockValidationResultStore, BlockValidator};
-use journal::block_wrapper::BlockStatus;
-use journal::chain::*;
-use journal::chain_head_lock::ChainHeadLock;
-use journal::commit_store::CommitStore;
 use py_ffi;
 use pylogger;
 use sawtooth::block::Block;
-use state::state_pruning_manager::StatePruningManager;
-use state::state_view_factory::StateViewFactory;
+use sawtooth::database::lmdb::LmdbDatabase;
+use sawtooth::journal::commit_store::CommitStore;
 use std::ffi::CStr;
 use std::mem;
 use std::os::raw::{c_char, c_void};
@@ -42,9 +34,21 @@ use std::slice;
 use std::time::Duration;
 
 use protobuf::{self, Message};
+use sawtooth::{
+    consensus::notifier::BackgroundConsensusNotifier,
+    journal::{
+        block_manager::BlockManager,
+        block_validator::{BlockValidationResultStore, BlockValidator},
+        block_wrapper::BlockStatus,
+        chain::*,
+        chain_head_lock::ChainHeadLock,
+    },
+    state::{state_pruning_manager::StatePruningManager, state_view_factory::StateViewFactory},
+};
 
 use proto;
-use proto::transaction_receipt::TransactionReceipt;
+use proto::events::{Event, Event_Attribute};
+use proto::transaction_receipt::{StateChange, StateChange_Type, TransactionReceipt};
 
 use py_object_wrapper::PyObjectWrapper;
 
@@ -217,7 +221,7 @@ macro_rules! chain_controller_block_ffi {
 
             let $block: Block = {
                 let data = slice::from_raw_parts(block_bytes, block_bytes_len);
-                let proto_block: proto::block::Block = match protobuf::parse_from_bytes(&data) {
+                let proto_block: sawtooth::protos::block::Block = match protobuf::parse_from_bytes(&data) {
                     Ok(block) => block,
                     Err(err) => {
                         error!("Failed to parse block bytes: {:?}", err);
@@ -300,7 +304,10 @@ pub unsafe extern "C" fn chain_controller_chain_head(
         as *mut ChainController<PyExecutor, PyPermissionVerifier>))
         .light_clone();
 
-    if let Some(chain_head) = controller.chain_head().map(proto::block::Block::from) {
+    if let Some(chain_head) = controller
+        .chain_head()
+        .map(sawtooth::protos::block::Block::from)
+    {
         match chain_head.write_to_bytes() {
             Ok(payload) => {
                 *block_cap = payload.capacity();
@@ -334,14 +341,22 @@ impl PyChainObserver {
 }
 
 impl ChainObserver for PyChainObserver {
-    fn chain_update(&mut self, block: &Block, receipts: &[TransactionReceipt]) {
+    fn chain_update(
+        &mut self,
+        block: &Block,
+        receipts: &[sawtooth::protos::transaction_receipt::TransactionReceipt],
+    ) {
         let gil_guard = Python::acquire_gil();
         let py = gil_guard.python();
 
         let wrapped_block = PyObjectWrapper::from(block.clone());
+        let local_receipts: Vec<TransactionReceipt> = receipts
+            .iter()
+            .map(|receipt| TransactionReceipt::from(receipt.clone()))
+            .collect();
 
         self.py_observer
-            .call_method(py, "chain_update", (wrapped_block, receipts), None)
+            .call_method(py, "chain_update", (wrapped_block, &local_receipts), None)
             .map(|_| ())
             .map_err(|py_err| {
                 pylogger::exception(py, "Unable to call observer.chain_update", py_err);
@@ -374,5 +389,64 @@ impl ToPyObject for TransactionReceipt {
             .expect("Unable to ParseFromString");
 
         py_txn_receipt
+    }
+}
+
+impl From<sawtooth::protos::transaction_receipt::TransactionReceipt> for TransactionReceipt {
+    fn from(
+        txn_receipt: sawtooth::protos::transaction_receipt::TransactionReceipt,
+    ) -> TransactionReceipt {
+        let mut local_txn_receipt = TransactionReceipt::new();
+        local_txn_receipt.set_state_changes(
+            txn_receipt
+                .state_changes
+                .iter()
+                .map(|sc| {
+                    let mut state_change = StateChange::new();
+                    state_change.set_address(sc.get_address().into());
+                    state_change.set_value(sc.get_value().into());
+
+                    match sc.field_type {
+                        sawtooth::protos::transaction_receipt::StateChange_Type::TYPE_UNSET => {
+                            state_change.set_field_type(StateChange_Type::TYPE_UNSET)
+                        }
+                        sawtooth::protos::transaction_receipt::StateChange_Type::SET => {
+                            state_change.set_field_type(StateChange_Type::SET)
+                        }
+                        sawtooth::protos::transaction_receipt::StateChange_Type::DELETE => {
+                            state_change.set_field_type(StateChange_Type::DELETE)
+                        }
+                    }
+                    state_change
+                })
+                .collect(),
+        );
+        local_txn_receipt.set_events(
+            txn_receipt
+                .events
+                .iter()
+                .map(|e| {
+                    let mut event = Event::new();
+                    event.set_event_type(e.get_event_type().into());
+                    event.set_data(e.get_data().into());
+                    event.set_attributes(
+                        e.get_attributes()
+                            .iter()
+                            .map(|at| {
+                                let mut attributes = Event_Attribute::new();
+                                attributes.set_key(at.get_key().into());
+                                attributes.set_value(at.get_value().into());
+                                attributes
+                            })
+                            .collect(),
+                    );
+                    event
+                })
+                .collect(),
+        );
+        local_txn_receipt.set_data(txn_receipt.data);
+        local_txn_receipt.set_transaction_id(txn_receipt.transaction_id);
+
+        local_txn_receipt
     }
 }

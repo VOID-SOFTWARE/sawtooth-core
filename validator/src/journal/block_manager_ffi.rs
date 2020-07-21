@@ -21,12 +21,13 @@ use std::os::raw::{c_char, c_void};
 use std::slice;
 
 use sawtooth::block::Block;
-
-use journal::block_manager::{
-    BlockManager, BlockManagerError, BranchDiffIterator, BranchIterator, GetBlockIterator,
+use sawtooth::journal::{
+    block_manager::{
+        BlockManager, BlockManagerError, BranchDiffIterator, BranchIterator, GetBlockIterator,
+    },
+    commit_store::CommitStore,
 };
-use journal::commit_store::CommitStore;
-use proto;
+
 use protobuf::{self, Message};
 
 #[repr(u32)]
@@ -153,11 +154,11 @@ pub unsafe extern "C" fn block_manager_put(
     check_null!(block_manager, branch);
 
     let branch_result: Result<Vec<Block>, ErrorCode> = slice::from_raw_parts(branch, branch_len)
-        .into_iter()
+        .iter()
         .map(|ptr| {
             let entry = *ptr as *const PutEntry;
             let payload = slice::from_raw_parts((*entry).block_bytes, (*entry).block_bytes_len);
-            let proto_block: proto::block::Block =
+            let proto_block: sawtooth::protos::block::Block =
                 protobuf::parse_from_bytes(&payload).expect("Failed to parse proto Block bytes");
 
             Ok(Block::from(proto_block))
@@ -269,7 +270,7 @@ pub unsafe extern "C" fn block_manager_get_iterator_next(
     check_null!(iterator);
 
     if let Some(Some(block)) = (*(iterator as *mut GetBlockIterator)).next() {
-        let proto_block: proto::block::Block = block.into();
+        let proto_block: sawtooth::protos::block::Block = block.into();
         let bytes = proto_block
             .write_to_bytes()
             .expect("Failed to serialize proto Block");
@@ -324,7 +325,7 @@ pub unsafe extern "C" fn block_manager_branch_iterator_next(
     check_null!(iterator);
 
     if let Some(block) = (*(iterator as *mut BranchIterator)).next() {
-        let proto_block: proto::block::Block = block.into();
+        let proto_block: sawtooth::protos::block::Block = block.into();
         let bytes = proto_block
             .write_to_bytes()
             .expect("Failed to serialize proto Block");
@@ -387,7 +388,7 @@ pub unsafe extern "C" fn block_manager_branch_diff_iterator_next(
     check_null!(iterator);
 
     if let Some(block) = (*(iterator as *mut BranchDiffIterator)).next() {
-        let proto_block: proto::block::Block = block.into();
+        let proto_block: sawtooth::protos::block::Block = block.into();
         let bytes = proto_block
             .write_to_bytes()
             .expect("Failed to serialize proto Block");
@@ -407,13 +408,12 @@ pub unsafe extern "C" fn block_manager_branch_diff_iterator_next(
 #[cfg(test)]
 mod test {
     use super::*;
-    use database::lmdb::{LmdbContext, LmdbDatabase};
-    use journal::block_store::BlockStore;
-    use journal::commit_store::CommitStore;
     use proto::block::BlockHeader;
-    use sawtooth::block::Block;
 
     use protobuf::Message;
+    use sawtooth::block::Block;
+    use sawtooth::database::lmdb::{LmdbContext, LmdbDatabase};
+    use sawtooth::journal::block_store::BlockStore;
     use sawtooth::journal::NULL_BLOCK_IDENTIFIER;
 
     use std::env;
