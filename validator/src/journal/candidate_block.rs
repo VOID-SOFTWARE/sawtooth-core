@@ -48,6 +48,18 @@ pub enum BatchInjectionStage {
     BlockUnderFormation,
 }
 
+impl BatchInjectionStage {
+    fn value(&self) -> &str {
+        match *self {
+            BatchInjectionStage::BlockStart => "block_start",
+            BatchInjectionStage::BeforeBatch => "before_batch",
+            BatchInjectionStage::AfterBatch => "after_batch",
+            BatchInjectionStage::BlockEnd => "block_end",
+            _ => "",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum CandidateBlockError {
     BlockEmpty,
